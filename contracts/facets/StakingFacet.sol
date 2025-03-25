@@ -1,120 +1,88 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import "../libraries/AppStorage.sol";
+interface IERC20 {
+    function transferFrom(address from, address to, uint256 value) external returns (bool);
+    function transfer(address to, uint256 value) external returns (bool);
+}
 
 contract StakingFacet {
-    AppStorage internal storex;
+    // Remove AppStorage dependency
+    IERC20 public stakingToken;
 
-    // Events for staking operations
+    // Local storage for staking data
+    mapping(address => uint256) public stakedBalance;
+    mapping(address => uint256) public lastStakeTime;
+    mapping(address => uint256) public lastRewardCalculationTime;
+    mapping(address => uint256) public accumulatedRewards;
+    uint256 public totalStaked;
+    uint256 public stakingRewardRate;
+    uint256 public stakingStartTime;
+    uint256 public stakingEndTime;
+
+    // Events
     event Staked(address indexed user, uint256 amount);
     event Unstaked(address indexed user, uint256 amount);
     event RewardPaid(address indexed user, uint256 amount);
 
-    // Stake tokens
-    function stake(uint256 _amount) external {
-        require(_amount > 0, "Cannot stake 0 tokens");
-        require(storex.balanceOf[msg.sender] >= _amount, "Insufficient balance");
-
-        // Update user's staked balance
-        storex.stakedBalance[msg.sender] += _amount;
-        storex.totalStaked += _amount;
-
-        // Update user's token balance
-        storex.balanceOf[msg.sender] -= _amount;
-
-        // Update last stake time and reward calculation time
-        storex.lastStakeTime[msg.sender] = block.timestamp;
-        storex.lastRewardCalculationTime[msg.sender] = block.timestamp;
-
-        emit Staked(msg.sender, _amount);
+    constructor(address _stakingToken) {
+        stakingToken = IERC20(_stakingToken);
     }
 
-    // Unstake tokens
-    function unstake(uint256 _amount) external {
-        require(_amount > 0, "Cannot unstake 0 tokens");
-        require(storex.stakedBalance[msg.sender] >= _amount, "Insufficient staked balance");
 
-        // Calculate and distribute any pending rewards
-        _calculateRewards(msg.sender);
+ function stake(uint256 _amount) external {
+    require(_amount > 0, "Cannot stake 0 tokens");
+    require(stakingToken.transferFrom(msg.sender, address(this), _amount), "Transfer failed");
+    stakedBalance[msg.sender] += _amount;
+    totalStaked += _amount;
+    lastStakeTime[msg.sender] = block.timestamp;
+    lastRewardCalculationTime[msg.sender] = block.timestamp;
+    emit Staked(msg.sender, _amount);
+}
 
-        // Update user's staked balance
-        storex.stakedBalance[msg.sender] -= _amount;
-        storex.totalStaked -= _amount;
+function unstake(uint256 _amount) external {
+    require(_amount > 0, "Cannot unstake 0 tokens");
+    require(stakedBalance[msg.sender] >= _amount, "Insufficient staked balance");
+    _calculateRewards(msg.sender);
+    stakedBalance[msg.sender] -= _amount;
+    totalStaked -= _amount;
+    require(stakingToken.transfer(msg.sender, _amount), "Transfer failed");
+    emit Unstaked(msg.sender, _amount);
+}
 
-        // Return tokens to user's balance
-        storex.balanceOf[msg.sender] += _amount;
+function claimRewards() external {
+    _calculateRewards(msg.sender);
+}
 
-        emit Unstaked(msg.sender, _amount);
+function _calculateRewards(address _user) internal {
+    require(block.timestamp >= stakingStartTime && block.timestamp <= stakingEndTime, "Staking is not active");
+    uint256 timeElapsed = block.timestamp - lastRewardCalculationTime[_user];
+    uint256 pendingRewards = (stakedBalance[_user] * stakingRewardRate * timeElapsed) / 1e18;
+    accumulatedRewards[_user] += pendingRewards;
+    lastRewardCalculationTime[_user] = block.timestamp;
+    if (pendingRewards > 0) {
+        require(stakingToken.transfer(_user, pendingRewards), "Reward transfer failed");
+        emit RewardPaid(_user, pendingRewards);
     }
+}
 
-    // Claim accumulated rewards
-    function claimRewards() external {
-        _calculateRewards(msg.sender);
-    }
-
-    // Internal function to calculate rewards
-    function _calculateRewards(address _user) internal {
-        // Check if staking is active
-        require(block.timestamp >= storex.stakingStartTime && 
-                block.timestamp <= storex.stakingEndTime, 
-                "Staking is not active");
-
-        // Calculate time elapsed since last reward calculation
-        uint256 timeElapsed = block.timestamp - storex.lastRewardCalculationTime[_user];
-        
-        // Calculate rewards
-        uint256 pendingRewards = (storex.stakedBalance[_user] * 
-                                  storex.stakingRewardRate * 
-                                  timeElapsed) / 1e18;
-
-        // Update accumulated rewards
-        storex.accumulatedRewards[_user] += pendingRewards;
-
-        // Update last reward calculation time
-        storex.lastRewardCalculationTime[_user] = block.timestamp;
-
-        // Transfer rewards if any
-        if (pendingRewards > 0) {
-            // Mint or transfer rewards (adjust based on your tokenomics)
-            // For this example, we'll assume minting new tokens
-            storex.balanceOf[_user] += pendingRewards;
-            storex.totalSupply += pendingRewards;
-
-            emit RewardPaid(_user, pendingRewards);
-        }
-    }
-
-    // Admin function to set staking parameters
-    function setStakingParameters(
-        uint256 _rewardRate, 
-        uint256 _startTime, 
-        uint256 _endTime
-    ) external {
-        // Add access control (e.g., onlyOwner) in a real implementation
+    function setStakingParameters(uint256 _rewardRate, uint256 _startTime, uint256 _endTime) external {
         require(_endTime > _startTime, "Invalid time parameters");
-        
-        storex.stakingRewardRate = _rewardRate;
-        storex.stakingStartTime = _startTime;
-        storex.stakingEndTime = _endTime;
+        stakingRewardRate = _rewardRate;
+        stakingStartTime = _startTime;
+        stakingEndTime = _endTime;
     }
 
-    // View functions to get staking information
     function getStakedBalance(address _user) external view returns (uint256) {
-        return storex.stakedBalance[_user];
+        return stakedBalance[_user];
     }
 
     function getPendingRewards(address _user) external view returns (uint256) {
-        // Calculate pending rewards without modifying state
-        uint256 timeElapsed = block.timestamp - storex.lastRewardCalculationTime[_user];
-        
-        return (storex.stakedBalance[_user] * 
-                storex.stakingRewardRate * 
-                timeElapsed) / 1e18 + 
-               storex.accumulatedRewards[_user];
+        uint256 timeElapsed = block.timestamp - lastRewardCalculationTime[_user];
+        return (stakedBalance[_user] * stakingRewardRate * timeElapsed) / 1e18 + accumulatedRewards[_user];
     }
 
     function getTotalStaked() external view returns (uint256) {
-        return storex.totalStaked;
+        return totalStaked;
     }
 }
