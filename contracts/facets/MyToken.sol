@@ -22,7 +22,7 @@ contract MyToken {
         emit Transfer(address(0), msg.sender, storex.totalSupply);
     }
 
-    // Getter functions for AppStorage variables
+ 
     function name() public view returns (string memory) {
         return storex.name;
     }
