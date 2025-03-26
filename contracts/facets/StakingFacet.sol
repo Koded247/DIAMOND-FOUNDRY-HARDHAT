@@ -20,7 +20,7 @@ contract StakingFacet {
     uint256 public stakingStartTime;
     uint256 public stakingEndTime;
 
-    // Events
+
     event Staked(address indexed user, uint256 amount);
     event Unstaked(address indexed user, uint256 amount);
     event RewardPaid(address indexed user, uint256 amount);

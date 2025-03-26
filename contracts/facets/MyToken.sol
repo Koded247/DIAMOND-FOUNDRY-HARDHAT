@@ -6,13 +6,13 @@ import "../libraries/AppStorage.sol";
 contract MyToken {
     AppStorage internal storex;
 
-    // Events
+
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
     event Mint(address indexed to, uint256 value);
     event Burn(address indexed from, uint256 value);
 
-    // Constructor
+
     constructor(string memory _name, string memory _symbol, uint256 _totalSupply) {
         storex.name = _name;
         storex.symbol = _symbol;
